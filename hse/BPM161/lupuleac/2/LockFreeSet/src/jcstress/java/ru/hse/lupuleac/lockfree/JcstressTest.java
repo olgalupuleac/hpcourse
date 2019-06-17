@@ -300,6 +300,54 @@ public class JcstressTest {
         }
     }
 
+    @JCStressTest
+
+// These are the test outcomes.
+    @Outcome(id = "0, false, false", expect = Expect.ACCEPTABLE)
+    @State
+    public static class Remove_Arbiters {
+
+        LockFreeSet<Integer> set = new LockFreeSet<>();
+
+        public Remove_Arbiters() {
+            //set.add(1);
+            //set.add(7);
+            //set.isEmpty();
+            //set.iterator();
+            set.add(7);
+        }
+
+        @Actor
+        public void actor1() {
+            assert(set.add(4));
+            //set.add(0);
+            //set.remove(-8);
+            //set.contains(4);
+            assert(set.remove(4));
+
+        }
+
+        @Actor
+        public void actor2() {
+            //set.isEmpty();
+            assert(set.remove(7));
+            //set.isEmpty();
+            //set.isEmpty();
+            //set.contains(9);
+        }
+
+
+        @Arbiter
+        public void arbiter(IZZ_Result r) {
+            List<Integer> values = set.scan();
+            r.r1 = values.size();
+            //r.r2 = values.get(1);
+            r.r2 = set.remove(7);
+            r.r3 = set.remove(4);
+        }
+    }
+
+
 
 }
 

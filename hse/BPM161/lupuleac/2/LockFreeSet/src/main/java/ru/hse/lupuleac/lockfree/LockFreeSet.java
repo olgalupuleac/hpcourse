@@ -4,14 +4,19 @@ package ru.hse.lupuleac.lockfree;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicMarkableReference;
+import java.util.concurrent.atomic.AtomicStampedReference;
 import java.util.stream.Collectors;
 
 public class LockFreeSet<T extends Comparable<T>> implements
         Set<T> {
     private Node head;
+    private AtomicInteger counter = new AtomicInteger(0);
 
     public LockFreeSet() {
+        System.err.println("\nNew iteration");
         head = new Node(null);
     }
 
@@ -19,14 +24,18 @@ public class LockFreeSet<T extends Comparable<T>> implements
     public boolean add(T value) {
         while (true) {
             FindResult findResult = find(value);
+            if (!findResult.prev.exists()) {
+                continue;
+            }
             if (findResult.cur != null && findResult.cur.value
                     .compareTo(value) == 0) {
                 return false;
             }
             Node node = new Node(value);
-            node.next.set(findResult.cur, false);
+            node.next.set(findResult.cur, counter.incrementAndGet());
+            int id = counter.incrementAndGet();
             if (findResult.prev.next.compareAndSet(findResult.cur,
-                    node, false, false)) {
+                    node, findResult.prev.getId(), id)) {
                 return true;
             }
         }
@@ -38,17 +47,22 @@ public class LockFreeSet<T extends Comparable<T>> implements
             FindResult findResult = find(value);
             Node nodeToBeRemoved = findResult.cur;
 
+
             if (nodeToBeRemoved == null || nodeToBeRemoved.value
                     .compareTo(value) != 0) {
                 return false;
             }
+            System.err.println(Thread.currentThread() + " " + nodeToBeRemoved
+                    .value
+                    + " " + value);
             Node next = nodeToBeRemoved.nextNode();
-            if (!nodeToBeRemoved.next.attemptMark(next, true)) {
+            if (!nodeToBeRemoved.next.attemptStamp(next, -1)) {
                 continue;
             }
-
+            int id = counter.incrementAndGet();
             if (findResult.prev.next.compareAndSet(nodeToBeRemoved,
-                    next, false, false)) {
+                    next, findResult.prev.getId(), id)) {
+                System.err.println(Thread.currentThread() + " true");
                 return true;
             }
         }
@@ -120,14 +134,19 @@ public class LockFreeSet<T extends Comparable<T>> implements
     private class Node {
         private Node(T value) {
             this.value = value;
-            next = new AtomicMarkableReference<>(null, false);
+            int id = LockFreeSet.this.counter.incrementAndGet();
+            next = new AtomicStampedReference<>(null, id);
         }
 
         private T value;
-        private AtomicMarkableReference<Node> next;
+        private AtomicStampedReference<Node> next;
 
         public boolean exists() {
-            return !next.isMarked();
+            return next.getStamp() >= 0;
+        }
+
+        public int getId() {
+            return next.getStamp();
         }
 
         public Node nextNode() {
@@ -135,8 +154,8 @@ public class LockFreeSet<T extends Comparable<T>> implements
         }
 
         @Override
-        public boolean equals(Object other) {
-            return ((Node)other).next == next;
+        public boolean equals(Object obj) {
+            return this.getClass().isInstance(obj) && ((Node)obj).getId() == getId();
         }
     }
 
