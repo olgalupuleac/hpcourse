@@ -1,12 +1,9 @@
 package ru.hse.lupuleac.lockfree;
 
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicMarkableReference;
 import java.util.concurrent.atomic.AtomicStampedReference;
 import java.util.stream.Collectors;
 
@@ -16,7 +13,7 @@ public class LockFreeSet<T extends Comparable<T>> implements
     private AtomicInteger counter = new AtomicInteger(0);
 
     public LockFreeSet() {
-        System.err.println("\nNew iteration");
+        System.err.println("\n\nNew iteration");
         head = new Node(null);
     }
 
@@ -24,18 +21,34 @@ public class LockFreeSet<T extends Comparable<T>> implements
     public boolean add(T value) {
         while (true) {
             FindResult findResult = find(value);
-            if (!findResult.prev.exists()) {
-                continue;
-            }
             if (findResult.cur != null && findResult.cur.value
                     .compareTo(value) == 0) {
                 return false;
             }
             Node node = new Node(value);
-            node.next.set(findResult.cur, counter.incrementAndGet());
             int id = counter.incrementAndGet();
-            if (findResult.prev.next.compareAndSet(findResult.cur,
-                    node, findResult.prev.getId(), id)) {
+            node.next.set(findResult.cur, id);
+            int prevId = findResult.prev.id();
+            int newId = counter.incrementAndGet();
+            if (prevId >= 0 && findResult.prev.next.compareAndSet(findResult.cur,
+                    node, prevId, newId)) {
+                /*if (findResult.cur != null && findResult.prev != null) {
+                    System.err.println("add " + findResult.prev.value + " " +
+                            " " + value + " " + findResult.cur.value);
+                } else {
+                    if (findResult.cur != null) {
+                        System.err.println("add null " + value + " " +
+                                findResult.cur.value);
+                    }
+                    else {
+                        if (findResult.prev != null) {
+                            System.err.println("add " + findResult.prev.value
+                                            + " " + value + " null");
+                        } else {
+                            System.err.println("add null " + value + " null");
+                        }
+                    }
+                }*/
                 return true;
             }
         }
@@ -47,22 +60,39 @@ public class LockFreeSet<T extends Comparable<T>> implements
             FindResult findResult = find(value);
             Node nodeToBeRemoved = findResult.cur;
 
-
             if (nodeToBeRemoved == null || nodeToBeRemoved.value
                     .compareTo(value) != 0) {
                 return false;
             }
-            System.err.println(Thread.currentThread() + " " + nodeToBeRemoved
-                    .value
-                    + " " + value);
             Node next = nodeToBeRemoved.nextNode();
             if (!nodeToBeRemoved.next.attemptStamp(next, -1)) {
                 continue;
             }
-            int id = counter.incrementAndGet();
-            if (findResult.prev.next.compareAndSet(nodeToBeRemoved,
-                    next, findResult.prev.getId(), id)) {
-                System.err.println(Thread.currentThread() + " true");
+
+            int prevId = findResult.prev.id();
+            int newId = counter.incrementAndGet();
+            if (prevId >= 0 && findResult.prev.next.compareAndSet
+                    (nodeToBeRemoved,
+                    next, prevId, newId)) {
+                /*if (next != null && findResult.prev != null) {
+                    System.err.println("remove " + findResult.prev.value + " " +
+                            "" + value +
+                            " " + next.value);
+                } else {
+                    if (next != null) {
+                        System.err.println("remove null " + value + " " + next
+                                .value);
+                    }
+                    else {
+                        if (findResult.prev != null) {
+                            System.err.println("remove " + findResult.prev.value + " " +
+                                    value + " null");
+                        } else {
+                            System.err.println("remove null " + value + " " +
+                                    "null");
+                        }
+                    }
+                }*/
                 return true;
             }
         }
@@ -84,7 +114,7 @@ public class LockFreeSet<T extends Comparable<T>> implements
     public boolean contains(T value) {
         Node cur = head.nextNode();
         while (cur != null && (cur.value.compareTo
-                        (value) < 0)) {
+                (value) < 0)) {
             cur = cur.nextNode();
         }
         return cur != null && cur.value.compareTo(value) == 0 && cur
@@ -100,10 +130,10 @@ public class LockFreeSet<T extends Comparable<T>> implements
         Node cur = head.nextNode();
         List<Node> res = new ArrayList<>();
         while (cur != null) {
-           if (cur.exists()){
-               res.add(cur);
-           }
-           cur = cur.nextNode();
+            if (cur.exists()) {
+                res.add(cur);
+            }
+            cur = cur.nextNode();
         }
         return res;
     }
@@ -134,28 +164,22 @@ public class LockFreeSet<T extends Comparable<T>> implements
     private class Node {
         private Node(T value) {
             this.value = value;
-            int id = LockFreeSet.this.counter.incrementAndGet();
-            next = new AtomicStampedReference<>(null, id);
+            next = new AtomicStampedReference<>(null, counter.incrementAndGet());
         }
 
         private T value;
         private AtomicStampedReference<Node> next;
 
         public boolean exists() {
-            return next.getStamp() >= 0;
-        }
-
-        public int getId() {
-            return next.getStamp();
+            return next.getStamp() > 0;
         }
 
         public Node nextNode() {
             return next.getReference();
         }
 
-        @Override
-        public boolean equals(Object obj) {
-            return this.getClass().isInstance(obj) && ((Node)obj).getId() == getId();
+        public int id() {
+            return next.getStamp();
         }
     }
 
